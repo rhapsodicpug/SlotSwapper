@@ -91,26 +91,26 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
         left = scrollX + padding
       }
       
-      // Calculate vertical position - VERY AGGRESSIVE: check if input is in bottom 60%
+      // Calculate vertical position - ULTRA AGGRESSIVE: check if input is in bottom 70%
       const viewportTop = scrollY + padding
       const viewportBottom = scrollY + viewportHeight - padding
-      const viewport60Percent = scrollY + viewportHeight * 0.6
+      const viewport70Percent = scrollY + viewportHeight * 0.7
       const inputBottom = rect.bottom + scrollY
       
       let top: number
       
-      // AGGRESSIVE CHECK: If input is in bottom 60% of screen, ALWAYS position above
-      const isInputInBottom60Percent = inputBottom > viewport60Percent
+      // ULTRA AGGRESSIVE CHECK: If input is in bottom 70% of screen, ALWAYS position above
+      const isInputInBottom70Percent = inputBottom > viewport70Percent
       
       // Check if there's enough space below (with very generous buffer)
-      const requiredSpaceBelow = actualPopupHeight + gap + padding + 50 // Extra 50px buffer
-      const hasEnoughSpaceBelow = spaceBelow >= requiredSpaceBelow && !isInputInBottom60Percent
+      const requiredSpaceBelow = actualPopupHeight + gap + padding + 100 // Extra 100px buffer
+      const hasEnoughSpaceBelow = spaceBelow >= requiredSpaceBelow && !isInputInBottom70Percent
       
       if (hasEnoughSpaceBelow) {
-        // Enough space below AND input is in top 40% - show below
+        // Enough space below AND input is in top 30% - show below
         top = rect.bottom + scrollY + gap
       } else {
-        // NOT enough space below OR input is in bottom 60% - ALWAYS position above
+        // NOT enough space below OR input is in bottom 70% - ALWAYS position above
         top = rect.top + scrollY - actualPopupHeight - gap
       }
       
@@ -129,11 +129,20 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
         top = viewportTop
       }
       
-      // EXTRA SAFETY: If we're still too close to bottom, force above
+      // EXTRA SAFETY: If we're still too close to bottom (within 50px), force above
       const distanceFromBottom = viewportBottom - (top + actualPopupHeight)
-      if (distanceFromBottom < 20) {
+      if (distanceFromBottom < 50) {
         top = rect.top + scrollY - actualPopupHeight - gap
         // But ensure it doesn't go above viewport
+        if (top < viewportTop) {
+          top = viewportTop
+        }
+      }
+      
+      // FINAL CHECK: Ensure popup bottom never exceeds viewport bottom
+      const finalBottom = top + actualPopupHeight
+      if (finalBottom > viewportBottom) {
+        top = viewportBottom - actualPopupHeight
         if (top < viewportTop) {
           top = viewportTop
         }
@@ -374,9 +383,14 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                 style={{
                   top: `${popupPosition.top}px`,
                   left: `${popupPosition.left}px`,
-                  maxHeight: typeof window !== 'undefined' ? `${window.innerHeight - 32}px` : '450px',
+                  maxHeight: typeof window !== 'undefined' ? `min(${window.innerHeight - 32}px, calc(100vh - ${popupPosition.top}px - 16px))` : '450px',
                   maxWidth: typeof window !== 'undefined' ? `${window.innerWidth - 32}px` : '320px',
+                  // CRITICAL: Ensure popup never exceeds viewport bottom
                   bottom: typeof window !== 'undefined' ? 'auto' : 'auto',
+                  // Force max height based on available space from top position
+                  ...(typeof window !== 'undefined' && {
+                    maxHeight: `min(450px, calc(100vh - ${popupPosition.top}px - 16px))`,
+                  }),
                 }}
                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -386,8 +400,10 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                 <div 
                   className="backdrop-blur-xl bg-card/95 border-2 border-primary/30 rounded-2xl shadow-2xl shadow-primary/20 p-4 overflow-y-auto" 
                   style={{ 
-                    maxHeight: typeof window !== 'undefined' ? `${Math.min(450, window.innerHeight - 32)}px` : '450px',
-                    overflowY: 'auto'
+                    maxHeight: typeof window !== 'undefined' ? `min(450px, calc(100vh - ${popupPosition.top}px - 16px))` : '450px',
+                    overflowY: 'auto',
+                    // Ensure content never exceeds container
+                    boxSizing: 'border-box'
                   }}
                 >
                   <style jsx global>{`
