@@ -21,6 +21,7 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
     const [isOpen, setIsOpen] = React.useState(false)
     const [isFocused, setIsFocused] = React.useState(false)
     const [popupPosition, setPopupPosition] = React.useState({ top: 0, left: 0 })
+    const [animationDirection, setAnimationDirection] = React.useState<'up' | 'down'>('down')
     const containerRef = React.useRef<HTMLDivElement>(null)
     const popupRef = React.useRef<HTMLDivElement>(null)
     const inputRef = React.useRef<HTMLInputElement>(null)
@@ -82,8 +83,74 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       const spaceBelow = viewportHeight - rect.bottom - gap
       const spaceAbove = rect.top - gap
       
+      // Detect if there are other form inputs nearby that would be overlapped
+      const checkForNearbyInputs = () => {
+        if (!containerRef.current) return { hasInputBelow: false, hasInputRight: false }
+        
+        const allInputs = document.querySelectorAll('input, [role="combobox"], [data-date-picker]')
+        let hasInputBelow = false
+        let hasInputRight = false
+        
+        allInputs.forEach((input) => {
+          if (input === containerRef.current || input.contains(containerRef.current)) return
+          
+          const inputRect = input.getBoundingClientRect()
+          const distanceBelow = inputRect.top - rect.bottom
+          const distanceRight = inputRect.left - rect.right
+          
+          // Check if there's an input directly below (within 100px)
+          if (distanceBelow > 0 && distanceBelow < 100 && 
+              Math.abs(inputRect.left - rect.left) < rect.width / 2) {
+            hasInputBelow = true
+          }
+          
+          // Check if there's an input to the right (within 50px vertically, within 300px horizontally)
+          if (distanceRight > 0 && distanceRight < 300 &&
+              Math.abs(inputRect.top - rect.top) < 50) {
+            hasInputRight = true
+          }
+        })
+        
+        return { hasInputBelow, hasInputRight }
+      }
+      
+      const { hasInputBelow, hasInputRight } = checkForNearbyInputs()
+      
       // Calculate horizontal position first
+      // Smart positioning to avoid overlapping with adjacent inputs
       let left = rect.left + scrollX
+      
+      // Check available space on right side
+      const spaceRight = viewportWidth - rect.right
+      const spaceLeft = rect.left
+      
+      // Estimate adjacent input width (typical form input is ~200-250px including gap)
+      const estimatedInputWidth = 250
+      const spaceNeeded = popupWidth + padding
+      
+      // If there's an input to the right that would be overlapped, position to the left
+      if (hasInputRight && spaceLeft >= popupWidth + padding) {
+        // Position to the left of the input to avoid overlapping adjacent input
+        left = rect.left + scrollX - popupWidth - gap
+      } else if (spaceRight < spaceNeeded && spaceLeft >= popupWidth + padding) {
+        // Not enough space on right, but enough on left - position to the left
+        left = rect.left + scrollX - popupWidth - gap
+      } else if (spaceRight < spaceNeeded) {
+        // Not enough space on right, and not enough on left either
+        // Center it or align to viewport edge
+        const centerPosition = scrollX + (viewportWidth - popupWidth) / 2
+        if (centerPosition >= scrollX + padding && centerPosition + popupWidth <= scrollX + viewportWidth - padding) {
+          left = centerPosition
+        } else {
+          // Fallback: align to right edge with padding
+          left = scrollX + viewportWidth - popupWidth - padding
+        }
+      } else {
+        // Enough space on right - align with left edge of input (default)
+        left = rect.left + scrollX
+      }
+      
+      // Final bounds check - ensure popup doesn't overflow viewport
       if (left + popupWidth > scrollX + viewportWidth - padding) {
         left = scrollX + viewportWidth - popupWidth - padding
       }
@@ -106,13 +173,24 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       const requiredSpaceBelow = actualPopupHeight + gap + padding + 100 // Extra 100px buffer
       const hasEnoughSpaceBelow = spaceBelow >= requiredSpaceBelow && !isInputInBottom70Percent
       
-      if (hasEnoughSpaceBelow) {
-        // Enough space below AND input is in top 30% - show below
+      // CRITICAL: If there's an input below that would be overlapped, ALWAYS position above
+      let direction: 'up' | 'down' = 'down'
+      if (hasInputBelow) {
+        // There's an input below - position above to avoid overlap
+        top = rect.top + scrollY - actualPopupHeight - gap
+        direction = 'up'
+      } else if (hasEnoughSpaceBelow) {
+        // Enough space below AND input is in top 30% AND no input below - show below
         top = rect.bottom + scrollY + gap
+        direction = 'down'
       } else {
         // NOT enough space below OR input is in bottom 70% - ALWAYS position above
         top = rect.top + scrollY - actualPopupHeight - gap
+        direction = 'up'
       }
+      
+      // Update animation direction
+      setAnimationDirection(direction)
       
       // CRITICAL: Strict bounds checking - ensure popup NEVER exceeds viewport
       const maxAllowedTop = viewportBottom - actualPopupHeight
@@ -220,6 +298,32 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       }
     }, [isOpen, calculatePosition])
 
+    // Keyboard navigation
+    React.useEffect(() => {
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (!isOpen) return
+        
+        switch (event.key) {
+          case 'Escape':
+            event.preventDefault()
+            setIsOpen(false)
+            inputRef.current?.blur()
+            break
+          case 'Enter':
+            if (document.activeElement === inputRef.current) {
+              event.preventDefault()
+              // Don't close, just ensure it's open
+            }
+            break
+        }
+      }
+
+      if (isOpen) {
+        document.addEventListener('keydown', handleKeyDown)
+        return () => document.removeEventListener('keydown', handleKeyDown)
+      }
+    }, [isOpen])
+
     // Close popup when clicking outside
     React.useEffect(() => {
       const handleClickOutside = (event: MouseEvent) => {
@@ -229,8 +333,9 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       }
 
       if (isOpen) {
-        document.addEventListener('mousedown', handleClickOutside)
-        return () => document.removeEventListener('mousedown', handleClickOutside)
+        // Use capture phase to catch clicks before they bubble
+        document.addEventListener('mousedown', handleClickOutside, true)
+        return () => document.removeEventListener('mousedown', handleClickOutside, true)
       }
     }, [isOpen])
 
@@ -240,7 +345,7 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
     const displayValue = value ? (isDateTime ? format(selectedDate || new Date(), 'MMM dd, yyyy HH:mm') : format(selectedDate || new Date(), 'MMM dd, yyyy')) : ''
 
     return (
-      <div ref={containerRef} className="relative group z-30">
+      <div ref={containerRef} className="relative group" style={{ zIndex: isOpen ? 50 : 'auto' }}>
         {/* Animated gradient background */}
         <motion.div
           className="absolute inset-0 rounded-xl bg-gradient-to-br from-primary/30 via-primary/15 to-primary/5 blur-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-500 pointer-events-none"
@@ -328,11 +433,29 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                     if (!isOpen) setIsFocused(false)
                   }, 200)
                 }}
+                onKeyDown={(e) => {
+                  // Open on Enter or Space
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setIsOpen(true)
+                    setIsFocused(true)
+                  }
+                  // Open on ArrowDown
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setIsOpen(true)
+                    setIsFocused(true)
+                  }
+                }}
+                aria-haspopup="dialog"
+                aria-expanded={isOpen}
+                aria-label={props['aria-label'] || (isDateTime ? 'Select date and time' : 'Select date')}
                 className={cn(
                   "w-full bg-transparent outline-none text-sm font-medium cursor-pointer",
                   "text-foreground placeholder:text-muted-foreground/60",
                   "disabled:cursor-not-allowed disabled:opacity-50",
                   "focus:placeholder:text-muted-foreground/40",
+                  "transition-colors duration-200",
                   className
                 )}
               />
@@ -379,23 +502,44 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
               {/* Calendar Popup */}
               <motion.div
                 ref={popupRef}
-                className="fixed z-[9999] w-auto min-w-[320px] max-w-[320px]"
+                className="fixed w-auto min-w-[320px] max-w-[320px]"
                 style={{
                   top: `${popupPosition.top}px`,
                   left: `${popupPosition.left}px`,
-                  maxHeight: typeof window !== 'undefined' ? `min(${window.innerHeight - 32}px, calc(100vh - ${popupPosition.top}px - 16px))` : '450px',
+                  zIndex: 9999,
+                  // CRITICAL: Use CSS calc to ensure popup never exceeds viewport bottom
+                  maxHeight: typeof window !== 'undefined' 
+                    ? `min(450px, calc(100vh - ${popupPosition.top}px - 16px))` 
+                    : '450px',
                   maxWidth: typeof window !== 'undefined' ? `${window.innerWidth - 32}px` : '320px',
-                  // CRITICAL: Ensure popup never exceeds viewport bottom
-                  bottom: typeof window !== 'undefined' ? 'auto' : 'auto',
-                  // Force max height based on available space from top position
-                  ...(typeof window !== 'undefined' && {
-                    maxHeight: `min(450px, calc(100vh - ${popupPosition.top}px - 16px))`,
-                  }),
                 }}
-                initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
+                initial={{ 
+                  opacity: 0, 
+                  y: animationDirection === 'down' ? -20 : 20, 
+                  scale: 0.9,
+                  filter: 'blur(4px)'
+                }}
+                animate={{ 
+                  opacity: 1, 
+                  y: 0, 
+                  scale: 1,
+                  filter: 'blur(0px)'
+                }}
+                exit={{ 
+                  opacity: 0, 
+                  y: animationDirection === 'down' ? -10 : 10, 
+                  scale: 0.95,
+                  filter: 'blur(2px)'
+                }}
+                transition={{ 
+                  duration: 0.25, 
+                  ease: [0.16, 1, 0.3, 1], // Custom easing for smoother animation
+                  opacity: { duration: 0.2 },
+                  filter: { duration: 0.2 }
+                }}
+                role="dialog"
+                aria-modal="true"
+                aria-label={isDateTime ? 'Date and time picker' : 'Date picker'}
               >
                 <div 
                   className="backdrop-blur-xl bg-card/95 border-2 border-primary/30 rounded-2xl shadow-2xl shadow-primary/20 p-4 overflow-y-auto" 
@@ -403,7 +547,9 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                     maxHeight: typeof window !== 'undefined' ? `min(450px, calc(100vh - ${popupPosition.top}px - 16px))` : '450px',
                     overflowY: 'auto',
                     // Ensure content never exceeds container
-                    boxSizing: 'border-box'
+                    boxSizing: 'border-box',
+                    // Smooth scrolling
+                    scrollBehavior: 'smooth'
                   }}
                 >
                   <style jsx global>{`
@@ -477,6 +623,18 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                       color: hsl(var(--primary-foreground));
                       border-color: hsl(var(--primary));
                       transform: scale(1.1);
+                      box-shadow: 0 4px 12px hsl(var(--primary) / 0.3);
+                    }
+                    
+                    .rdp-button_previous:active,
+                    .rdp-button_next:active {
+                      transform: scale(0.95);
+                    }
+                    
+                    .rdp-button_previous:focus,
+                    .rdp-button_next:focus {
+                      outline: 2px solid hsl(var(--primary));
+                      outline-offset: 2px;
                     }
                     
                     .rdp-head_cell {
@@ -511,6 +669,16 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                       background: hsl(var(--primary) / 0.2);
                       border-color: hsl(var(--primary) / 0.5);
                       transform: scale(1.1);
+                      transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+                    }
+                    
+                    .rdp-day:active {
+                      transform: scale(0.95);
+                    }
+                    
+                    .rdp-day:focus {
+                      outline: 2px solid hsl(var(--primary));
+                      outline-offset: 2px;
                     }
                     
                     .rdp-day_selected {
@@ -519,11 +687,25 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                       border-color: hsl(var(--primary));
                       font-weight: 600;
                       box-shadow: 0 4px 12px hsl(var(--primary) / 0.4);
+                      animation: pulse 0.3s ease-out;
+                    }
+                    
+                    @keyframes pulse {
+                      0% {
+                        transform: scale(1);
+                      }
+                      50% {
+                        transform: scale(1.1);
+                      }
+                      100% {
+                        transform: scale(1);
+                      }
                     }
                     
                     .rdp-day_selected:hover {
                       background: hsl(var(--primary));
                       transform: scale(1.05);
+                      box-shadow: 0 6px 16px hsl(var(--primary) / 0.5);
                     }
                     
                     .rdp-day_today {
@@ -543,6 +725,31 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                     .rdp-day_disabled:hover {
                       background: transparent;
                       transform: none;
+                    }
+                    
+                    /* Custom scrollbar styling */
+                    .backdrop-blur-xl::-webkit-scrollbar {
+                      width: 8px;
+                    }
+                    
+                    .backdrop-blur-xl::-webkit-scrollbar-track {
+                      background: transparent;
+                      border-radius: 4px;
+                    }
+                    
+                    .backdrop-blur-xl::-webkit-scrollbar-thumb {
+                      background: hsl(var(--primary) / 0.2);
+                      border-radius: 4px;
+                      transition: background 0.2s;
+                    }
+                    
+                    .backdrop-blur-xl::-webkit-scrollbar-thumb:hover {
+                      background: hsl(var(--primary) / 0.4);
+                    }
+                    
+                    .backdrop-blur-xl {
+                      scrollbar-width: thin;
+                      scrollbar-color: hsl(var(--primary) / 0.2) transparent;
                     }
                   `}</style>
                   
@@ -589,7 +796,12 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                   
                   {/* Time picker for datetime-local */}
                   {isDateTime && (
-                    <div className="mt-4 pt-4 border-t border-border">
+                    <motion.div 
+                      className="mt-4 pt-4 border-t border-border"
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.1 }}
+                    >
                       <label className="text-sm font-medium text-foreground mb-2 block">
                         Time
                       </label>
@@ -597,31 +809,36 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                         type="time"
                         value={timeValue}
                         onChange={handleTimeChange}
-                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary transition-all duration-200 hover:border-primary/50"
+                        aria-label="Select time"
                       />
-                    </div>
+                    </motion.div>
                   )}
                   
                   {/* Action buttons */}
                   <div className="flex gap-2 mt-4 pt-4 border-t border-border">
-                    <button
+                    <motion.button
                       onClick={() => {
                         onChange?.('')
                         setIsOpen(false)
                       }}
-                      className="flex-1 px-4 py-2 rounded-lg border border-border bg-background text-foreground hover:bg-accent transition-colors text-sm font-medium"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex-1 px-4 py-2 rounded-lg border border-border bg-background text-foreground hover:bg-accent transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
                     >
                       Clear
-                    </button>
-                    <button
+                    </motion.button>
+                    <motion.button
                       onClick={() => {
                         const today = new Date()
                         handleDateSelect(today)
                       }}
-                      className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium"
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 shadow-lg shadow-primary/20"
                     >
                       Today
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
               </motion.div>
