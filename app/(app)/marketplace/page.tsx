@@ -169,7 +169,7 @@ export default function MarketplacePage() {
                 onChange={(e) => setFilters({ ...filters, search: e.target.value })}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 relative z-10">
               <Label className="flex items-center gap-2">
                 <CalendarIcon className="h-4 w-4" />
                 Start Date
@@ -182,7 +182,7 @@ export default function MarketplacePage() {
                 onOpenChange={setDatePickerOpen}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 relative z-10">
               <Label className="flex items-center gap-2">
                 <CalendarIcon className="h-4 w-4" />
                 End Date
