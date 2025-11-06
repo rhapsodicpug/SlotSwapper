@@ -149,7 +149,7 @@ export default function MarketplacePage() {
       </div>
 
       {/* Filters Section */}
-      <Card className="relative z-20">
+      <Card className="relative z-10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Filter className="h-5 w-5" />

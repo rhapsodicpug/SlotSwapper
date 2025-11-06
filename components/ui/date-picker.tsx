@@ -88,14 +88,18 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
         // Enough space above - show above
         top = rect.top + scrollY - popupHeight - 8
       } else {
-        // Not enough space either way - prioritize showing below with clipping
-        top = rect.bottom + scrollY + 8
+        // Not enough space either way - show above if more space, otherwise below
+        if (spaceAbove > spaceBelow) {
+          top = scrollY + padding
+        } else {
+          top = scrollY + viewportHeight - popupHeight - padding
+        }
       }
       
       // CRITICAL: Ensure popup never goes below viewport bottom
       const maxAllowedTop = scrollY + viewportHeight - popupHeight - padding
       if (top > maxAllowedTop) {
-        top = maxAllowedTop
+        top = Math.max(scrollY + padding, maxAllowedTop)
       }
       
       // Ensure popup doesn't go above viewport top
@@ -104,16 +108,11 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
         top = minAllowedTop
       }
       
-      // Final verification: calculate actual bottom position
+      // Final verification: ensure popup fits within viewport
       const actualBottom = top + popupHeight
       const viewportBottom = scrollY + viewportHeight - padding
       if (actualBottom > viewportBottom) {
-        // Adjust to fit within viewport
-        top = viewportBottom - popupHeight
-        // But don't go above the top
-        if (top < scrollY + padding) {
-          top = scrollY + padding
-        }
+        top = Math.max(scrollY + padding, viewportBottom - popupHeight)
       }
       
       // Calculate horizontal position
@@ -321,15 +320,15 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                 style={{
                   top: `${popupPosition.top}px`,
                   left: `${popupPosition.left}px`,
-                  maxHeight: 'calc(100vh - 16px)',
-                  overflowY: 'auto',
+                  maxHeight: 'calc(100vh - 32px)',
+                  maxWidth: 'calc(100vw - 32px)',
                 }}
                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
               >
-                <div className="backdrop-blur-xl bg-card/95 border-2 border-primary/30 rounded-2xl shadow-2xl shadow-primary/20 p-4 max-h-[calc(100vh-32px)] overflow-y-auto">
+                <div className="backdrop-blur-xl bg-card/95 border-2 border-primary/30 rounded-2xl shadow-2xl shadow-primary/20 p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 32px)' }}>
                   <style jsx global>{`
                     .rdp {
                       --rdp-cell-size: 40px;
