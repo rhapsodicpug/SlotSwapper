@@ -8,6 +8,9 @@ if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required')
 }
 
+// Type assertion to ensure JWT_SECRET is always a string after the check
+const JWT_SECRET_KEY: string = JWT_SECRET
+
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10)
 }
@@ -17,12 +20,12 @@ export async function comparePassword(password: string, hashedPassword: string):
 }
 
 export function createJWT(userId: string): string {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' })
+  return jwt.sign({ userId }, JWT_SECRET_KEY, { expiresIn: '7d' })
 }
 
 export function verifyJWT(token: string): { userId: string } | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string }
+    const decoded = jwt.verify(token, JWT_SECRET_KEY) as { userId: string }
     return decoded
   } catch (error) {
     return null
