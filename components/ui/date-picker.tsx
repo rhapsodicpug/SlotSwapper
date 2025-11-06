@@ -91,26 +91,26 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
         left = scrollX + padding
       }
       
-      // Calculate vertical position - VERY AGGRESSIVE: check if input is in bottom half
+      // Calculate vertical position - VERY AGGRESSIVE: check if input is in bottom 60%
       const viewportTop = scrollY + padding
       const viewportBottom = scrollY + viewportHeight - padding
-      const viewportMiddle = scrollY + viewportHeight / 2
-      const inputCenter = rect.top + rect.height / 2 + scrollY
+      const viewport60Percent = scrollY + viewportHeight * 0.6
+      const inputBottom = rect.bottom + scrollY
       
       let top: number
       
-      // AGGRESSIVE CHECK: If input is in bottom half of screen, ALWAYS position above
-      const isInputInBottomHalf = inputCenter > viewportMiddle
+      // AGGRESSIVE CHECK: If input is in bottom 60% of screen, ALWAYS position above
+      const isInputInBottom60Percent = inputBottom > viewport60Percent
       
-      // Check if there's enough space below (with generous buffer)
-      const requiredSpaceBelow = actualPopupHeight + gap + padding + 20 // Extra 20px buffer
-      const hasEnoughSpaceBelow = spaceBelow >= requiredSpaceBelow && !isInputInBottomHalf
+      // Check if there's enough space below (with very generous buffer)
+      const requiredSpaceBelow = actualPopupHeight + gap + padding + 50 // Extra 50px buffer
+      const hasEnoughSpaceBelow = spaceBelow >= requiredSpaceBelow && !isInputInBottom60Percent
       
       if (hasEnoughSpaceBelow) {
-        // Enough space below AND input is in top half - show below
+        // Enough space below AND input is in top 40% - show below
         top = rect.bottom + scrollY + gap
       } else {
-        // NOT enough space below OR input is in bottom half - ALWAYS position above
+        // NOT enough space below OR input is in bottom 60% - ALWAYS position above
         top = rect.top + scrollY - actualPopupHeight - gap
       }
       
@@ -129,11 +129,24 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
         top = viewportTop
       }
       
+      // EXTRA SAFETY: If we're still too close to bottom, force above
+      const distanceFromBottom = viewportBottom - (top + actualPopupHeight)
+      if (distanceFromBottom < 20) {
+        top = rect.top + scrollY - actualPopupHeight - gap
+        // But ensure it doesn't go above viewport
+        if (top < viewportTop) {
+          top = viewportTop
+        }
+      }
+      
       setPopupPosition({ top, left })
     }, [])
 
     React.useEffect(() => {
-      if (isOpen && popupRef.current) {
+      if (isOpen) {
+        // Calculate position immediately
+        calculatePosition()
+        
         // Calculate position multiple times to account for rendering
         const timer1 = setTimeout(() => {
           calculatePosition()
@@ -147,12 +160,29 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
           calculatePosition()
         }, 150)
         
-        // Use ResizeObserver to recalculate when popup size changes
-        const resizeObserver = new ResizeObserver(() => {
+        const timer4 = setTimeout(() => {
           calculatePosition()
-        })
+        }, 300)
         
-        resizeObserver.observe(popupRef.current)
+        // Use ResizeObserver to recalculate when popup size changes
+        let resizeObserver: ResizeObserver | null = null
+        if (popupRef.current) {
+          resizeObserver = new ResizeObserver(() => {
+            calculatePosition()
+          })
+          resizeObserver.observe(popupRef.current)
+        } else {
+          // If popupRef not ready, try again after a delay
+          const timer5 = setTimeout(() => {
+            if (popupRef.current) {
+              resizeObserver = new ResizeObserver(() => {
+                calculatePosition()
+              })
+              resizeObserver.observe(popupRef.current)
+            }
+          }, 100)
+          setTimeout(() => clearTimeout(timer5), 5000)
+        }
         
         // Recalculate on scroll
         const handleScroll = () => {
@@ -171,7 +201,10 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
           clearTimeout(timer1)
           clearTimeout(timer2)
           clearTimeout(timer3)
-          resizeObserver.disconnect()
+          clearTimeout(timer4)
+          if (resizeObserver) {
+            resizeObserver.disconnect()
+          }
           window.removeEventListener('scroll', handleScroll, true)
           window.removeEventListener('resize', handleResize)
         }
@@ -336,12 +369,14 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
               
               {/* Calendar Popup */}
               <motion.div
+                ref={popupRef}
                 className="fixed z-[9999] w-auto min-w-[320px] max-w-[320px]"
                 style={{
                   top: `${popupPosition.top}px`,
                   left: `${popupPosition.left}px`,
                   maxHeight: typeof window !== 'undefined' ? `${window.innerHeight - 32}px` : '450px',
                   maxWidth: typeof window !== 'undefined' ? `${window.innerWidth - 32}px` : '320px',
+                  bottom: typeof window !== 'undefined' ? 'auto' : 'auto',
                 }}
                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -349,7 +384,6 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                 transition={{ duration: 0.2, ease: "easeOut" }}
               >
                 <div 
-                  ref={popupRef}
                   className="backdrop-blur-xl bg-card/95 border-2 border-primary/30 rounded-2xl shadow-2xl shadow-primary/20 p-4 overflow-y-auto" 
                   style={{ 
                     maxHeight: typeof window !== 'undefined' ? `${Math.min(450, window.innerHeight - 32)}px` : '450px',
