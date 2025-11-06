@@ -2,14 +2,14 @@ import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import { prisma } from '@/lib/prisma'
 
-const JWT_SECRET = process.env.JWT_SECRET
-
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is required')
+// Lazy getter function to check JWT_SECRET only when needed (at runtime, not build time)
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET
+  if (!secret) {
+    throw new Error('JWT_SECRET environment variable is required')
+  }
+  return secret
 }
-
-// Type assertion to ensure JWT_SECRET is always a string after the check
-const JWT_SECRET_KEY: string = JWT_SECRET
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10)
@@ -20,12 +20,12 @@ export async function comparePassword(password: string, hashedPassword: string):
 }
 
 export function createJWT(userId: string): string {
-  return jwt.sign({ userId }, JWT_SECRET_KEY, { expiresIn: '7d' })
+  return jwt.sign({ userId }, getJwtSecret(), { expiresIn: '7d' })
 }
 
 export function verifyJWT(token: string): { userId: string } | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET_KEY) as { userId: string }
+    const decoded = jwt.verify(token, getJwtSecret()) as { userId: string }
     return decoded
   } catch (error) {
     return null

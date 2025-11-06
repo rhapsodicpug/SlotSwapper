@@ -447,6 +447,7 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                     setIsFocused(true)
                   }
                 }}
+                role="combobox"
                 aria-haspopup="dialog"
                 aria-expanded={isOpen}
                 aria-label={props['aria-label'] || (isDateTime ? 'Select date and time' : 'Select date')}
