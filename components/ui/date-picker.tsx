@@ -91,42 +91,53 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
       
       // Calculate vertical position - prioritize showing above if not enough space below
       let top: number
+      const viewportTop = scrollY + padding
+      const viewportBottom = scrollY + viewportHeight - padding
+      const maxAllowedTop = viewportBottom - popupHeight
+      
+      // Check if popup would fit below
       const wouldFitBelow = spaceBelow >= popupHeight
       const wouldFitAbove = spaceAbove >= popupHeight
       
       if (wouldFitBelow) {
         // Enough space below - show below
         top = rect.bottom + scrollY + gap
+        // But ensure it doesn't exceed viewport bottom
+        if (top + popupHeight > viewportBottom) {
+          top = viewportBottom - popupHeight
+        }
       } else if (wouldFitAbove) {
         // Enough space above - show above
         top = rect.top + scrollY - popupHeight - gap
+        // Ensure it doesn't go above viewport top
+        if (top < viewportTop) {
+          top = viewportTop
+        }
       } else {
-        // Not enough space either way - choose the side with more space
-        if (spaceAbove > spaceBelow) {
-          // More space above - position at top of viewport
-          top = scrollY + padding
+        // Not enough space either way - position to fit within viewport
+        // Try to position above first (better UX)
+        const topIfAbove = rect.top + scrollY - popupHeight - gap
+        const topIfBelow = rect.bottom + scrollY + gap
+        
+        if (topIfAbove >= viewportTop && topIfAbove + popupHeight <= viewportBottom) {
+          // Can fit above
+          top = topIfAbove
+        } else if (topIfBelow + popupHeight <= viewportBottom && topIfBelow >= viewportTop) {
+          // Can fit below
+          top = topIfBelow
         } else {
-          // More space below - position at bottom of viewport
-          top = scrollY + viewportHeight - popupHeight - padding
+          // Neither fits perfectly - position at top of viewport with max height
+          top = viewportTop
         }
       }
       
       // CRITICAL: Final bounds check - ensure popup is always within viewport
-      const viewportTop = scrollY + padding
-      const viewportBottom = scrollY + viewportHeight - padding
-      const maxAllowedTop = viewportBottom - popupHeight
-      
-      // Clamp top position to viewport bounds
       top = Math.max(viewportTop, Math.min(top, maxAllowedTop))
       
-      // Double-check bottom doesn't exceed viewport
+      // Final verification: ensure bottom doesn't exceed viewport
       const actualBottom = top + popupHeight
       if (actualBottom > viewportBottom) {
-        top = viewportBottom - popupHeight
-        // But don't go above viewport top
-        if (top < viewportTop) {
-          top = viewportTop
-        }
+        top = Math.max(viewportTop, viewportBottom - popupHeight)
       }
       
       setPopupPosition({ top, left })
@@ -321,8 +332,8 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                 style={{
                   top: `${popupPosition.top}px`,
                   left: `${popupPosition.left}px`,
-                  maxHeight: `${window.innerHeight - 32}px`,
-                  maxWidth: `${window.innerWidth - 32}px`,
+                  maxHeight: typeof window !== 'undefined' ? `${window.innerHeight - 32}px` : '450px',
+                  maxWidth: typeof window !== 'undefined' ? `${window.innerWidth - 32}px` : '320px',
                 }}
                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -332,7 +343,7 @@ const DatePicker = React.forwardRef<HTMLInputElement, DatePickerProps>(
                 <div 
                   className="backdrop-blur-xl bg-card/95 border-2 border-primary/30 rounded-2xl shadow-2xl shadow-primary/20 p-4 overflow-y-auto" 
                   style={{ 
-                    maxHeight: `${Math.min(450, window.innerHeight - 32)}px`,
+                    maxHeight: typeof window !== 'undefined' ? `${Math.min(450, window.innerHeight - 32)}px` : '450px',
                     overflowY: 'auto'
                   }}
                 >
